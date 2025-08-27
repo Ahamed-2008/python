@@ -66,3 +66,9 @@ while True:
                 case "view task":
                     taskno = int(input("Enter task number: "))
                     print(tasks[taskno-1])
+                case "exit":
+                    break
+                case _:
+                    print("Invalid input. Please try again.")
+                    continue
+
