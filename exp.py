@@ -5,6 +5,22 @@ st.set_page_config(page_title="Smart Library", layout="centered")
 
 st.title("📚 Smart Library Assistant")
 
+# Ensure message state exists before reading it
+if "last_message" not in st.session_state:
+    st.session_state.last_message = None
+
+# --- Show any pending message from previous action ---
+if st.session_state.last_message:
+    kind = st.session_state.last_message.get("type")
+    msg = st.session_state.last_message.get("msg", "")
+    if kind == "success":
+        st.success(msg)
+    elif kind == "warning":
+        st.warning(msg)
+    elif kind == "error":
+        st.error(msg)
+    st.session_state.last_message = None
+
 # --- Initialize session state ---
 if "borrowed_books" not in st.session_state:
     st.session_state.borrowed_books = []
@@ -57,15 +73,15 @@ if st.session_state.selected_book:
         if option == "Borrow":
             if book not in st.session_state.borrowed_books:
                 st.session_state.borrowed_books.append(book)
-                st.success(f"✅ '{book}' borrowed successfully!")
+                st.session_state.last_message = {"type": "success", "msg": f"✅ '{book}' borrowed successfully!"}
             else:
-                st.warning(f"'{book}' is already borrowed.")
+                st.session_state.last_message = {"type": "warning", "msg": f"'{book}' is already borrowed."}
         elif option == "Return":
             if book in st.session_state.borrowed_books:
                 st.session_state.borrowed_books.remove(book)
-                st.success(f"📘 '{book}' returned successfully!")
+                st.session_state.last_message = {"type": "success", "msg": f"📘 '{book}' returned successfully!"}
             else:
-                st.warning(f"'{book}' is not in your borrowed list.")
+                st.session_state.last_message = {"type": "error", "msg": f"'{book}' has not been borrowed."}
 
         # Clear selection
         st.session_state.selected_book = None
@@ -80,4 +96,5 @@ if st.session_state.borrowed_books:
         col1.write(f"📖 {book}")
         if col2.button("Return", key=f"return_{i}"):
             st.session_state.borrowed_books.remove(book)
+            st.session_state.last_message = {"type": "success", "msg": f"📘 '{book}' returned successfully!"}
             st.rerun()
