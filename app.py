@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any
@@ -42,7 +41,6 @@ class Library:
         name = name.strip()
         if not name:
             return False, "No book name provided."
-        # match case-insensitively against stored titles
         found = next((t for t in self.issuedBooks if t.lower() == name.lower()), None)
         if found:
             self.issuedBooks.remove(found)
@@ -57,7 +55,6 @@ class Library:
 # -------------------------
 @st.cache_data(show_spinner=False)
 def fetch_google_books_suggestions(query: str, max_results: int = 6) -> List[Dict[str, Any]]:
-    """Fetch a list of suggestions from Google Books API."""
     if not query or not query.strip():
         return []
     url = "https://www.googleapis.com/books/v1/volumes"
@@ -78,18 +75,16 @@ def fetch_google_books_suggestions(query: str, max_results: int = 6) -> List[Dic
             out.append({"title": title, "author": authors[0], "year": year})
         return out
     except RequestException as e:
-        # surface the message up as an exception to be shown in debug UI
         raise e
     except Exception as e:
-        # generic fallback
         raise e
 
 # -------------------------
-# Streamlit UI & layout
+# Streamlit UI
 # -------------------------
 st.set_page_config(page_title="Lux Library", page_icon="📚", layout="centered")
 
-# CSS (same luxury theme)
+# CSS
 st.markdown(
     """
 <style>
@@ -123,12 +118,11 @@ h1, h2, h3 { font-family: 'Inter', sans-serif; color: #f6f4f0; }
     unsafe_allow_html=True,
 )
 
-# header
 st.markdown("<h1 style='margin-bottom:6px'>📚 Lux Library</h1>", unsafe_allow_html=True)
 st.markdown("<div class='small'>Minimal. Quietly premium. Borrow with style.</div>", unsafe_allow_html=True)
 st.markdown("---")
 
-# initialize library if not present
+# Initialize session
 if "library" not in st.session_state:
     initial_books = [
         Book("The Great Gatsby", "F. Scott Fitzgerald", 1925),
@@ -144,16 +138,13 @@ if "library" not in st.session_state:
     st.session_state.library = Library(initial_books)
 
 lib: Library = st.session_state.library
-
-# initialize keys used for selections
 if "last_fetch_error" not in st.session_state:
-    st.session_state.last_fetch_error = ""  # keep last fetch exception text (if any)
+    st.session_state.last_fetch_error = ""
 
-# layout columns
 col1, col2 = st.columns([2, 1.3], gap="large")
 
 # -------------------------
-# Column 1: Available Books + Search (local fuzzy)
+# Column 1: Available Books
 # -------------------------
 with col1:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -169,9 +160,7 @@ with col1:
     q = (search_available or "").strip()
     if q:
         ql = q.lower()
-        # fuzzy partial match by title or author (simple)
         filtered = [b for b in available if ql in b.title.lower() or ql in b.author.lower()]
-        # if nothing found, try close matches on titles
         if not filtered:
             titles = [b.title for b in available]
             close = get_close_matches(q, titles, n=6, cutoff=0.4)
@@ -191,7 +180,7 @@ with col1:
             st.markdown(f"<div class='list-item' style='color:{color}'><strong>{b.title}</strong> — {b.author} ({b.year if b.year else '—'}){tag}</div>", unsafe_allow_html=True)
 
 # -------------------------
-# Column 2: Borrow / Return + Google suggestions
+# Column 2: Borrow / Return
 # -------------------------
 with col2:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -202,17 +191,23 @@ with col2:
     if "book_name" not in st.session_state:
         st.session_state.book_name = ""
 
-    # main input used for borrow/return
-    book_name = st.text_input("Book name", key="book_name", placeholder="Start typing — local + web suggestions will appear…")
+    prefill_value = st.session_state.get("temp_book_name", "")
+    book_name = st.text_input(
+        "Book name",
+        key="book_name",
+        value=prefill_value,
+        placeholder="Start typing — local + web suggestions will appear…"
+    )
+    if "temp_book_name" in st.session_state:
+        st.session_state.pop("temp_book_name")
 
-    # local available-title suggestions (quick)
+    # Local suggestions
     local_suggestions = []
     q = (book_name or "").strip()
     if q:
         ql = q.lower()
         local_suggestions = [b.title for b in lib.display_available() if ql in b.title.lower() or ql in b.author.lower()][:6]
         if not local_suggestions:
-            # fuzzy fallback
             local_titles = [b.title for b in lib.display_available()]
             local_suggestions = get_close_matches(q, local_titles, n=6, cutoff=0.4)
 
@@ -221,10 +216,10 @@ with col2:
         cols = st.columns(len(local_suggestions))
         for i, s in enumerate(local_suggestions):
             if cols[i].button(s, key=f"local_sugg_{i}"):
-                st.session_state.book_name = s
-                book_name = s
+                st.session_state.temp_book_name = s
+                st.rerun()
 
-    # Google Books suggestions (wrapped in try-except and show debug info)
+    # Google suggestions
     google_suggestions = []
     try:
         if q:
@@ -234,25 +229,20 @@ with col2:
                 for i, gs in enumerate(google_suggestions):
                     label = f"{gs['title']} — {gs['author']} ({gs['year'] if gs['year'] else '—'})"
                     if st.button(label, key=f"g_sugg_{i}"):
-                        st.session_state.book_name = gs["title"]
-                        book_name = gs["title"]
-                        # add to local library if not already present
+                        st.session_state.temp_book_name = gs["title"]
+
                         exists = any(b.title.lower() == gs["title"].lower() for b in lib.books)
                         if not exists:
-                            # safely parse year
                             yr = gs.get("year", 0) or 0
                             try:
                                 lib.books.append(Book(gs["title"], gs["author"], int(yr) if isinstance(yr, int) or (isinstance(yr, str) and yr.isdigit()) else 0))
-                                st.success(f"Added '{gs['title']}' to your library.")
                             except Exception:
-                                # swallow any rare parse errors but inform user
-                                st.warning("Could not parse year for fetched book; added without year.")
                                 lib.books.append(Book(gs["title"], gs["author"], 0))
+                        st.rerun()
     except Exception as e:
-        # store last fetch error so user can see it in debug
         st.session_state.last_fetch_error = str(e)
 
-    # Borrow / Return actions
+    # Borrow / Return
     if action == "Borrow":
         if st.button("Borrow Book"):
             success, msg = lib.borrow(book_name.strip())
@@ -272,7 +262,7 @@ with col2:
     st.markdown("<div class='small' style='margin-top:10px'>Tip: Click a suggestion to autofill the input. Web suggestions come from Google Books.</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Borrowed books
+    # Borrowed Books
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("<h3 class='gold'>🧾 Your Borrowed Books</h3>", unsafe_allow_html=True)
     if not lib.issuedBooks:
@@ -286,7 +276,7 @@ with col2:
                 st.markdown(f"<div class='list-item'>{title}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# footer + debug area
+# Footer + Debug
 st.markdown("---")
 st.markdown("<div class='small'>Made with minimalist luxury vibes • Powered by Google Books API ✨</div>", unsafe_allow_html=True)
 
@@ -294,9 +284,7 @@ with st.expander("Debug & last fetch error (expand if something fails)", expande
     st.write("Last fetch error (if any):")
     st.text(st.session_state.get("last_fetch_error", "") or "No recorded fetch error.")
     st.write("Session state snapshot:")
-    # show relevant session state keys only to keep it tidy
     dbg = {k: v for k, v in st.session_state.items() if k in ["search_available", "book_name", "library", "last_fetch_error"]}
-    # For library, show counts to avoid huge dumps
     if "library" in dbg and isinstance(dbg["library"], Library):
         dbg["library"] = {"books_count": len(dbg["library"].books), "issued_count": len(dbg["library"].issuedBooks)}
     st.json(dbg)
